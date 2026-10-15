@@ -6,11 +6,44 @@ import '../widgets/app_card.dart';
 
 class WorkoutDetailsScreen extends StatelessWidget {
   final Workout workout;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   const WorkoutDetailsScreen({
     super.key,
     required this.workout,
+    this.onEdit,
+    this.onDelete,
   });
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surfaceAlt,
+        title: const Text('Delete workout?'),
+        content: const Text('This workout will be permanently removed.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: AppColors.danger),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      onDelete?.call();
+      if (context.mounted) Navigator.pop(context);
+    }
+  }
 
   List<_Metric> _metrics() {
     final list = <_Metric>[
@@ -80,6 +113,36 @@ class WorkoutDetailsScreen extends StatelessWidget {
                     ),
                   ],
                 ),
+              ),
+            ],
+            if (onEdit != null || onDelete != null) ...[
+              const SizedBox(height: AppSpacing.xl),
+              Row(
+                children: [
+                  if (onEdit != null)
+                    Expanded(
+                      child: _ActionButton(
+                        label: 'Edit',
+                        icon: Icons.edit_rounded,
+                        color: AppColors.secondary,
+                        onTap: () {
+                          Navigator.pop(context);
+                          onEdit!.call();
+                        },
+                      ),
+                    ),
+                  if (onEdit != null && onDelete != null)
+                    const SizedBox(width: AppSpacing.md),
+                  if (onDelete != null)
+                    Expanded(
+                      child: _ActionButton(
+                        label: 'Delete',
+                        icon: Icons.delete_outline_rounded,
+                        color: AppColors.danger,
+                        onTap: () => _confirmDelete(context),
+                      ),
+                    ),
+                ],
               ),
             ],
             const SizedBox(height: AppSpacing.xl),
@@ -223,6 +286,56 @@ class _MetricTile extends StatelessWidget {
           const SizedBox(height: 4),
           Text(metric.label, style: AppText.label.copyWith(letterSpacing: 0.6)),
         ],
+      ),
+    );
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _ActionButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: color.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        onTap: onTap,
+        child: Container(
+          height: 52,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: color.withValues(alpha: 0.4)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: AppSpacing.sm),
+              Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

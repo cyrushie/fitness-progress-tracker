@@ -1,29 +1,60 @@
 import 'package:flutter/material.dart';
+
+import '../models/goals.dart';
+import '../models/stats.dart';
 import '../models/workout.dart';
 import '../theme/app_theme.dart';
+import '../theme/workout_style.dart';
 import '../widgets/app_card.dart';
 import '../widgets/progress_ring.dart';
 import '../widgets/workout_card.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   final List<Workout> workouts;
+  final Goals goals;
   final Function(Workout) onAddWorkout;
   final VoidCallback? onNavigateToAddWorkout;
   final Function(Workout)? onNavigateToDetails;
+  final Function(String id)? onDeleteWorkout;
+  final VoidCallback? onOpenCalendar;
 
   const HomeScreen({
     super.key,
     required this.workouts,
+    this.goals = Goals.defaults,
     required this.onAddWorkout,
     this.onNavigateToAddWorkout,
     this.onNavigateToDetails,
+    this.onDeleteWorkout,
+    this.onOpenCalendar,
   });
 
-  int get _totalCalories =>
-      workouts.fold(0, (sum, w) => sum + w.caloriesBurned);
-  int get _totalMinutes => workouts.fold(0, (sum, w) => sum + w.duration);
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
 
-  static const int _calorieGoal = 2000;
+class _HomeScreenState extends State<HomeScreen> {
+  final _searchController = TextEditingController();
+  String _query = '';
+  String _filter = 'All';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<Workout> get _filtered {
+    final q = _query.trim().toLowerCase();
+    final list = widget.workouts.where((w) {
+      final matchesType = _filter == 'All' || w.type == _filter;
+      final matchesQuery = q.isEmpty ||
+          w.type.toLowerCase().contains(q) ||
+          w.notes.toLowerCase().contains(q);
+      return matchesType && matchesQuery;
+    }).toList();
+    return list.reversed.toList();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,13 +84,22 @@ class HomeScreen extends StatelessWidget {
               GradientButton(
                 label: 'Log a workout',
                 icon: Icons.add_rounded,
-                onPressed: onNavigateToAddWorkout,
+                onPressed: widget.onNavigateToAddWorkout,
               ),
               const SizedBox(height: AppSpacing.xl),
+              _buildSearchField(),
+              const SizedBox(height: AppSpacing.md),
+              _buildFilterChips(),
+              const SizedBox(height: AppSpacing.lg),
               SectionHeader(
                 title: 'Recent workouts',
-                actionLabel: workouts.isEmpty ? null : 'See all',
-                onAction: () {},
+                trailing: Text(
+                  '${_filtered.length}',
+                  style: AppText.caption.copyWith(
+                    color: AppColors.textMuted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
               const SizedBox(height: AppSpacing.md),
               _buildWorkoutList(),
@@ -76,8 +116,8 @@ class HomeScreen extends StatelessWidget {
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Welcome back', style: AppText.h1),
+            children: const [
+              Text('Welcome back', style: AppText.h1),
             ],
           ),
         ),
@@ -88,9 +128,10 @@ class HomeScreen extends StatelessWidget {
             border: Border.all(color: AppColors.border),
           ),
           child: IconButton(
-            onPressed: () {},
+            onPressed: widget.onOpenCalendar,
+            tooltip: 'History',
             icon: const Icon(
-              Icons.notifications_none_rounded,
+              Icons.calendar_month_rounded,
               color: AppColors.textPrimary,
             ),
           ),
@@ -100,7 +141,11 @@ class HomeScreen extends StatelessWidget {
   }
 
   Widget _buildHero() {
-    final progress = (_totalCalories / _calorieGoal).clamp(0.0, 1.0);
+    final now = DateTime.now();
+    final todayCalories = WorkoutStats.caloriesOn(widget.workouts, now);
+    final todayMinutes = WorkoutStats.minutesOn(widget.workouts, now);
+    final goal = widget.goals.dailyCalories;
+    final progress = goal <= 0 ? 0.0 : (todayCalories / goal).clamp(0.0, 1.0);
     final percent = (progress * 100).round();
 
     return AppCard(
@@ -121,20 +166,17 @@ class HomeScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.baseline,
                     textBaseline: TextBaseline.alphabetic,
                     children: [
-                      Text('$_totalCalories', style: AppText.display),
+                      Text('$todayCalories', style: AppText.display),
                       const SizedBox(width: 6),
                       Text('kcal', style: AppText.caption),
                     ],
                   ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
-                Text(
-                  '$_totalMinutes active minutes',
-                  style: AppText.body,
-                ),
+                Text('$todayMinutes active minutes', style: AppText.body),
                 const SizedBox(height: AppSpacing.md),
                 Pill(
-                  label: 'Goal $_calorieGoal kcal',
+                  label: 'Goal $goal kcal',
                   icon: Icons.flag_rounded,
                   color: AppColors.primary,
                 ),
@@ -149,10 +191,7 @@ class HomeScreen extends StatelessWidget {
             center: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  '$percent%',
-                  style: AppText.h2,
-                ),
+                Text('$percent%', style: AppText.h2),
                 Text('of goal', style: AppText.label.copyWith(fontSize: 10)),
               ],
             ),
@@ -163,13 +202,14 @@ class HomeScreen extends StatelessWidget {
   }
 
   Widget _buildStats() {
-    final avg = workouts.isEmpty ? 0 : (_totalMinutes / workouts.length).round();
+    final totalMinutes = WorkoutStats.totalMinutes(widget.workouts);
+    final streak = WorkoutStats.currentStreak(widget.workouts);
     return Row(
       children: [
         Expanded(
           child: StatTile(
             icon: Icons.fitness_center_rounded,
-            value: '${workouts.length}',
+            value: '${widget.workouts.length}',
             label: 'WORKOUTS',
             color: AppColors.lifting,
           ),
@@ -178,7 +218,7 @@ class HomeScreen extends StatelessWidget {
         Expanded(
           child: StatTile(
             icon: Icons.timer_rounded,
-            value: '$_totalMinutes',
+            value: '$totalMinutes',
             label: 'MINUTES',
             color: AppColors.secondary,
           ),
@@ -186,18 +226,94 @@ class HomeScreen extends StatelessWidget {
         const SizedBox(width: AppSpacing.md),
         Expanded(
           child: StatTile(
-            icon: Icons.show_chart_rounded,
-            value: '$avg',
-            label: 'AVG MIN',
-            color: AppColors.yoga,
+            icon: Icons.local_fire_department_rounded,
+            value: '$streak',
+            label: 'DAY STREAK',
+            color: AppColors.cardio,
           ),
         ),
       ],
     );
   }
 
+  Widget _buildSearchField() {
+    return TextField(
+      controller: _searchController,
+      onChanged: (value) => setState(() => _query = value),
+      style: const TextStyle(color: AppColors.textPrimary),
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: 'Search by type or notes',
+        prefixIcon: const Icon(
+          Icons.search_rounded,
+          color: AppColors.textMuted,
+          size: 20,
+        ),
+        suffixIcon: _query.isEmpty
+            ? null
+            : IconButton(
+                icon: const Icon(
+                  Icons.close_rounded,
+                  color: AppColors.textMuted,
+                  size: 20,
+                ),
+                onPressed: () {
+                  _searchController.clear();
+                  setState(() => _query = '');
+                },
+              ),
+      ),
+    );
+  }
+
+  Widget _buildFilterChips() {
+    final filters = ['All', ...WorkoutStyle.types];
+    return SizedBox(
+      height: 38,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: filters.length,
+        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
+        itemBuilder: (context, i) {
+          final label = filters[i];
+          final selected = _filter == label;
+          final color =
+              label == 'All' ? AppColors.primary : WorkoutStyle.color(label);
+          return GestureDetector(
+            onTap: () => setState(() => _filter = label),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+              decoration: BoxDecoration(
+                color: selected
+                    ? color.withValues(alpha: 0.16)
+                    : AppColors.surface,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+                border: Border.all(
+                  color: selected ? color : AppColors.border,
+                  width: 1.4,
+                ),
+              ),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: selected
+                      ? AppColors.textPrimary
+                      : AppColors.textSecondary,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildWorkoutList() {
-    if (workouts.isEmpty) {
+    if (widget.workouts.isEmpty) {
       return AppCard(
         padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxl),
         child: Column(
@@ -216,20 +332,87 @@ class HomeScreen extends StatelessWidget {
       );
     }
 
-    final recent = workouts.reversed.take(10).toList();
+    final items = _filtered;
+    if (items.isEmpty) {
+      return AppCard(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxl),
+        child: Column(
+          children: [
+            Icon(
+              Icons.search_off_rounded,
+              size: 48,
+              color: AppColors.textMuted.withValues(alpha: 0.6),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text('No matching workouts', style: AppText.title),
+            const SizedBox(height: 4),
+            Text('Try a different search or filter', style: AppText.caption),
+          ],
+        ),
+      );
+    }
+
     return Column(
       children: [
-        for (final w in recent)
+        for (final w in items)
           Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.md),
-            child: WorkoutCard(
-              workout: w,
-              onTap: onNavigateToDetails == null
-                  ? null
-                  : () => onNavigateToDetails!(w),
+            child: Dismissible(
+              key: ValueKey(w.id),
+              direction: DismissDirection.endToStart,
+              background: _buildDismissBackground(),
+              confirmDismiss: (_) => _confirmDelete(w),
+              onDismissed: (_) => widget.onDeleteWorkout?.call(w.id),
+              child: WorkoutCard(
+                workout: w,
+                onTap: widget.onNavigateToDetails == null
+                    ? null
+                    : () => widget.onNavigateToDetails!(w),
+              ),
             ),
           ),
       ],
     );
+  }
+
+  Widget _buildDismissBackground() {
+    return Container(
+      alignment: Alignment.centerRight,
+      padding: const EdgeInsets.only(right: AppSpacing.xl),
+      decoration: BoxDecoration(
+        color: AppColors.danger.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.danger.withValues(alpha: 0.4)),
+      ),
+      child: const Icon(
+        Icons.delete_outline_rounded,
+        color: AppColors.danger,
+      ),
+    );
+  }
+
+  Future<bool> _confirmDelete(Workout w) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surfaceAlt,
+        title: const Text('Delete workout?'),
+        content: Text('Remove "${w.type}" from your log?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: AppColors.danger),
+            ),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
   }
 }

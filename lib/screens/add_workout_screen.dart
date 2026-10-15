@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
+import '../models/stats.dart';
 import '../models/workout.dart';
 import '../theme/app_theme.dart';
 import '../theme/workout_style.dart';
@@ -8,9 +9,17 @@ import '../widgets/app_card.dart';
 class AddWorkoutScreen extends StatefulWidget {
   final Function(Workout) onAddWorkout;
 
+  /// When provided the form opens in "edit" mode and is pre-filled.
+  final Workout? initial;
+
+  /// Enables the delete action (only used in edit mode).
+  final VoidCallback? onDelete;
+
   const AddWorkoutScreen({
     super.key,
     required this.onAddWorkout,
+    this.initial,
+    this.onDelete,
   });
 
   @override
@@ -28,6 +37,24 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
   final _notes = TextEditingController();
 
   String _type = WorkoutStyle.types.first;
+
+  bool get _isEditing => widget.initial != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final w = widget.initial;
+    if (w != null) {
+      _type = w.type;
+      _duration.text = '${w.duration}';
+      _distance.text = w.distance == null ? '' : '${w.distance}';
+      _weight.text = w.weight == null ? '' : '${w.weight}';
+      _reps.text = w.reps == null ? '' : '${w.reps}';
+      _sets.text = w.sets == null ? '' : '${w.sets}';
+      _calories.text = '${w.caloriesBurned}';
+      _notes.text = w.notes;
+    }
+  }
 
   @override
   void dispose() {
@@ -59,8 +86,8 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final workout = Workout(
-      id: const Uuid().v4(),
-      date: DateTime.now().toString().split(' ')[0],
+      id: widget.initial?.id ?? const Uuid().v4(),
+      date: widget.initial?.date ?? WorkoutStats.formatDate(DateTime.now()),
       type: _type,
       duration: int.parse(_duration.text),
       distance: _distance.text.isEmpty ? null : double.parse(_distance.text),
@@ -72,6 +99,49 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
     );
 
     widget.onAddWorkout(workout);
+
+    if (_isEditing) {
+      Navigator.pop(context);
+    } else {
+      _formKey.currentState!.reset();
+      _duration.clear();
+      _distance.clear();
+      _weight.clear();
+      _reps.clear();
+      _sets.clear();
+      _calories.clear();
+      _notes.clear();
+      setState(() => _type = WorkoutStyle.types.first);
+    }
+  }
+
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surfaceAlt,
+        title: const Text('Delete workout?'),
+        content: const Text('This workout will be permanently removed.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: AppColors.danger),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      widget.onDelete?.call();
+      if (mounted) Navigator.pop(context);
+    }
   }
 
   @override
@@ -79,8 +149,19 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Log workout'),
-        automaticallyImplyLeading: false,
+        title: Text(_isEditing ? 'Edit workout' : 'Log workout'),
+        automaticallyImplyLeading: _isEditing,
+        actions: [
+          if (widget.onDelete != null)
+            IconButton(
+              onPressed: _confirmDelete,
+              tooltip: 'Delete',
+              icon: const Icon(
+                Icons.delete_outline_rounded,
+                color: AppColors.danger,
+              ),
+            ),
+        ],
       ),
       body: Form(
         key: _formKey,
